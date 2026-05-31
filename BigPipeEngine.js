@@ -22,6 +22,9 @@ export default class BigPipeEngine extends EventEmitter {
     if (typeof response.write !== 'function' || typeof response.end !== 'function') {
       throw new TypeError('BigPipeEngine requires a writable stream with .write() and .end()');
     }
+    if (typeof options !== 'object' || options === null) {
+      throw new TypeError('BigPipeEngine options must be an object');
+    }
 
     this.#response = response;
     this.#phase = PHASES.INIT;
@@ -62,6 +65,9 @@ export default class BigPipeEngine extends EventEmitter {
     if (this.#phase !== PHASES.INIT) {
       throw new Error('Cannot send head in phase "' + this.#phase + '"');
     }
+    if (shellHTML !== undefined && shellHTML !== null && typeof shellHTML !== 'string') {
+      throw new TypeError('sendHead shellHTML must be a string');
+    }
 
     const head = shellHTML ?? '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n<title>Page</title>\n</head>\n<body>\n';
 
@@ -83,6 +89,9 @@ export default class BigPipeEngine extends EventEmitter {
     if (!(pagelet instanceof Pagelet)) {
       throw new TypeError('sendPagelet expects a Pagelet instance');
     }
+    if (this.#response.destroyed) {
+      throw new Error('Cannot send pagelet: underlying response stream is destroyed');
+    }
     if (this.#phase === PHASES.INIT) {
       throw new Error('Must call sendHead() before sending pagelets');
     }
@@ -98,10 +107,6 @@ export default class BigPipeEngine extends EventEmitter {
     this.emit('pagelet:start', pagelet);
 
     const buffer = Buffer.from(pagelet.toScriptTag(), 'utf-8');
-
-    if (this.#response.destroyed) {
-      throw new Error('Underlying response stream is destroyed');
-    }
 
     const ok = this.#response.write(buffer);
     this.emit('pagelet:complete', pagelet);
