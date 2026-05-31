@@ -1,10 +1,6 @@
-# bigpipe-mirror
-
-> Production-grade BigPipe streaming engine for Node.js
-
 # BigPipe Engine
 
-A production-grade implementation of Facebook's BigPipe streaming architecture in Node.js. Pagelets arrive **out of order** — the browser renders each section as soon as it's ready, without waiting for the slowest one.
+BigPipe streaming for Node.js. Pagelets arrive **out of order** - the browser renders each section as soon as it's ready, without waiting for the slowest one.
 
 ## Architecture
 
@@ -27,18 +23,18 @@ A production-grade implementation of Facebook's BigPipe streaming architecture i
 
 ### How it works
 
-1. **Shell** — The server immediately flushes the HTML `<head>`, page skeleton, and the BigPipe JavaScript runtime. The browser can start rendering the empty layout while data is still being fetched.
+1. **Shell** - The server immediately flushes the HTML `<head>`, page skeleton, and the BigPipe JavaScript runtime. The browser can start rendering the empty layout while data is still being fetched.
 
-2. **Pagelets** — Individual page sections (e.g., nav, feed, sidebar) are fetched concurrently on the server. Each one is streamed to the browser as a `<script>` tag the moment it's ready — **not** in any particular order.
+2. **Pagelets** - Individual page sections (e.g., nav, feed, sidebar) are fetched concurrently on the server. Each one is streamed to the browser as a `<script>` tag the moment it's ready, not in any particular order.
 
-3. **Runtime** — The `bigPipe.onPageletArrive()` JS function receives each pagelet, loads any CSS/JS dependencies, and swaps the content into the correct DOM element, removing the loading shimmer.
+3. **Runtime** - The `bigPipe.onPageletArrive()` JS function receives each pagelet, loads any CSS/JS dependencies, and swaps the content into the correct DOM element, removing the loading shimmer.
 
 ### Why BigPipe?
 
-- **TTFB (Time to First Byte)** is nearly instant — the shell is sent before any data queries finish
-- **Perceived performance** is dramatically better — fast pagelets appear immediately
+- **TTFB (Time to First Byte)** is nearly instant - the shell is sent before any data queries finish
+- **Perceived performance** is better - fast pagelets appear immediately
 - **Out-of-order streaming** means slow backend endpoints don't block fast ones
-- **Progressive enhancement** — CSS/JS dependencies are loaded per-pagelet and deduplicated
+- **Progressive enhancement** - CSS/JS dependencies are loaded per-pagelet and deduplicated
 
 ## Files
 
@@ -47,7 +43,7 @@ A production-grade implementation of Facebook's BigPipe streaming architecture i
 | `BigPipeEngine.js` | Manages the HTTP response stream (head / pagelet / close) |
 | `Pagelet.js` | A self-contained page section with HTML, CSS, JS, and priority |
 | `server.js` | Demo server with a 3-column dashboard example |
-| `package.json` | Package metadata (ESM, Node >= 18) |
+| `test/` | Test suite (node --test, 51 tests) |
 
 ## Usage
 
@@ -78,17 +74,17 @@ http.createServer((req, res) => {
 node server.js
 ```
 
-Open http://localhost:3000 — watch each column load independently. The sidebar arrives first (~400ms), nav second (~800ms), and the feed last (~2000ms). The page is interactive from the first paint.
+Open http://localhost:3000 - watch each column load independently. The sidebar arrives first (~400ms), nav second (~800ms), and the feed last (~2000ms). The page is interactive from the first paint.
 
 ## Pagelet API
 
 ```js
 const pagelet = new Pagelet({
-  id: 'unique-id',            // Required — matches the DOM container
+  id: 'unique-id',            // Required - matches the DOM container
   html: '<h1>Hello</h1>',     // The HTML content (alias: markup)
   css: ['/styles.css'],       // CSS URLs to load before displaying
   js: ['/app.js'],            // JS URLs to load after displaying
-  phase: PRIORITY.NORMAL,     // 0–3 or PRIORITY enum value
+  phase: PRIORITY.NORMAL,     // 0-3 or PRIORITY enum value
 });
 ```
 
@@ -105,6 +101,12 @@ const pagelet = new Pagelet({
 
 The inline `<script>` injected by `BigPipeEngine.clientRuntime()` creates a global `window.bigPipe` object with:
 
-- **`onPageletArrive(data)`** — Called by each `<script>` tag. Loads CSS (deduplicated via `loadedCss`), injects markup into the matching `id` element, then loads JS (deduplicated via `loadedJs`).
-- **`_display(data)`** — Replaces innerHTML and removes the `loading` CSS class (which controls the shimmer animation).
-- **`_complete(id)`** — Hook for post-render logic (e.g., analytics).
+- **`onPageletArrive(data)`** - Called by each `<script>` tag. Loads CSS (deduplicated via `loadedCss`), injects markup into the matching `id` element, then loads JS (deduplicated via `loadedJs`).
+- **`_display(data)`** - Replaces innerHTML and removes the `loading` CSS class (which controls the shimmer animation).
+- **`_complete(id)`** - Hook for post-render logic (e.g., analytics).
+
+## Tests
+
+```bash
+npm test
+```
