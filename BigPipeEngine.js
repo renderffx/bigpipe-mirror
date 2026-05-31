@@ -102,8 +102,6 @@ export default class BigPipeEngine extends EventEmitter {
   flush() {
     if (typeof this.#response.flush === 'function') {
       this.#response.flush();
-    } else {
-      this.#response.flushHeaders();
     }
     this.emit('flush');
     return this;
