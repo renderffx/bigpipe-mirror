@@ -312,6 +312,17 @@ describe('BigPipeEngine', () => {
       const after = res.listenerCount('error');
       assert.ok(after < before);
     });
+
+    it('sends pageComplete script before footer', () => {
+      const res = fakeResponse();
+      const engine = new BigPipeEngine(res);
+      engine.sendHead();
+      engine.close('</html>');
+      const allWrites = res.write.mock.calls.map(c => c.arguments[0].toString());
+      const pageCompleteIdx = allWrites.findIndex(w => w.includes('pageComplete'));
+      assert.ok(pageCompleteIdx >= 0);
+      assert.ok(allWrites.some(w => w.includes('</html>')));
+    });
   });
 
   describe('response error and close', () => {
@@ -347,8 +358,9 @@ describe('BigPipeEngine', () => {
       assert.ok(typeof runtime === 'string');
       assert.ok(runtime.includes('window.bigPipe'));
       assert.ok(runtime.includes('onPageletArrive'));
-      assert.ok(runtime.includes('_display'));
-      assert.ok(runtime.includes('_complete'));
+      assert.ok(runtime.includes('onPageletError'));
+      assert.ok(runtime.includes('pageComplete'));
+      assert.ok(runtime.includes('show'));
     });
   });
 

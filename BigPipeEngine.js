@@ -182,6 +182,10 @@ export default class BigPipeEngine extends EventEmitter {
     this.#detach();
 
     try {
+      if (!this.#response.destroyed) {
+        this.#response.write('<script>bigPipe.pageComplete();</script>\n');
+        if (typeof this.#response.flush === 'function') this.#response.flush();
+      }
       if (footerHTML && !this.#response.destroyed) {
         this.#response.write(Buffer.from(footerHTML, 'utf-8'));
       }
@@ -197,7 +201,7 @@ export default class BigPipeEngine extends EventEmitter {
   }
 
   static clientRuntime() {
-    return '<script>\nwindow.bigPipe={\nloadedCss:{},\nloadedJs:{},\nonPageletArrive:function(d){\nvar self=this;\nvar cssC=d.css.length;\nif(cssC===0){self._display(d);return}\nfor(var i=0;i<d.css.length;i++)(function(href){\nif(self.loadedCss[href]){cssC--;if(cssC===0)self._display(d);return}\nself.loadedCss[href]=true;\nvar l=document.createElement("link");\nl.rel="stylesheet";l.href=href;\nl.onload=l.onerror=function(){cssC--;if(cssC===0)self._display(d)};\ndocument.head.appendChild(l);\n})(d.css[i]);\n},\n_display:function(d){\nvar el=document.getElementById(d.id);\nif(el){el.innerHTML=d.content.markup;el.className=el.className.replace(/\\bloading\\b/g,"")}\nvar self=this;\nvar jsC=d.js.length;\nif(jsC===0){this._complete(d.id);return}\nfor(var j=0;j<d.js.length;j++)(function(src){\nif(self.loadedJs[src]){jsC--;if(jsC===0)self._complete(d.id);return}\nself.loadedJs[src]=true;\nvar s=document.createElement("script");\ns.src=src;\ns.onload=s.onerror=function(){jsC--;if(jsC===0)self._complete(d.id)};\ndocument.body.appendChild(s);\n})(d.js[j]);\n},\n_complete:function(id){}\n};\n</script>\n';
+    return '<script>\nwindow.bigPipe={\nq:{},\nc:{},\nj:{},\nonPageletArrive:function(d){\nbigPipe.q[d.id]=d;\nvar n=d.css.length;\nif(n===0){bigPipe.show(d.id);return}\nfor(var i=0;i<d.css.length;i++)(function(h){\nif(bigPipe.c[h]){n--;if(n===0)bigPipe.show(d.id);return}\nbigPipe.c[h]=1;\nvar l=document.createElement("link");\nl.rel="stylesheet";l.href=h;\nl.onload=l.onerror=function(){n--;if(n===0)bigPipe.show(d.id)};\ndocument.head.appendChild(l);\n})(d.css[i]);\n},\nshow:function(id){\nvar d=bigPipe.q[id];\nif(!d)return;\nvar e=document.getElementById(id);\nif(e){e.innerHTML=d.content.markup;e.className=e.className.replace(/\\bloading\\b/g,"")}\nvar n=d.js.length;\nif(n===0){bigPipe.done(id);return}\nfor(var j=0;j<d.js.length;j++)(function(s){\nif(bigPipe.j[s]){n--;if(n===0)bigPipe.done(id);return}\nbigPipe.j[s]=1;\nvar t=document.createElement("script");\nt.src=s;\nt.onload=t.onerror=function(){n--;if(n===0)bigPipe.done(id)};\ndocument.body.appendChild(t);\n})(d.js[j]);\n},\ndone:function(id){\ndelete bigPipe.q[id];\nif(typeof bigPipe._c==="function")bigPipe._c(id);\n},\nonPageletError:function(id){\ndelete bigPipe.q[id];\nvar e=document.getElementById(id);\nif(e)e.className=e.className.replace(/\\bloading\\b/g,"");\n},\n_c:function(id){},\npageComplete:function(){}\n};\n</script>\n';
   }
 
   static get PHASES() {

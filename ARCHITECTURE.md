@@ -212,72 +212,40 @@ echo $footer;
 
 ---
 
-## 5. Differences From Our Implementation
+## 5. Current Implementation vs Facebook BigPipe
 
-| Aspect                    | Facebook BigPipe (2010)                   | Our Implementation                     |
+| Aspect                    | Facebook BigPipe (2010)                   | Current Implementation                 |
 |---------------------------|-------------------------------------------|----------------------------------------|
-| **Pagelet content**       | External CSS/JS URLs (resource URLs)      | Inline `css`, `js` strings             |
-| **Client phases**         | 4-phase lifecycle (0→1→2→3)               | Single-phase (onPageletArrive → inject)|
-| **CSS loading**           | Parallel `<link>` injection, load tracking| Synchronous `<style>` injection        |
-| **JS execution**          | `<script>` tag injection (async)          | `new Function()` eval                  |
-| **Error recovery**        | Timeout-based fallback per pagelet        | None (unhandled rejection → engine closes) |
-| **Priority**              | Implicit (render order ≈ data-ready order)| Explicit `PRIORITY` enum (0–100)       |
-| **Queue**                 | None — pagelets flushed immediately       | Priority-sorted queue with backpressure|
-| **Backpressure**          | None (PHP blocking I/O model)             | `drain` event gating                   |
-| **Stream format**         | Raw HTML + `<script>` tags, no JSON wrapper| `toScriptTag()` produces same format  |
-| **Resource dedup**        | Global CSS/JS dedup cache (`loadedCss`)   | Not implemented (inline only)          |
-| **Server language**       | PHP (HipHop-compiled)                     | Node.js ES modules                     |
-| **Chunked encoding**      | Apache `flush()` → kernel `write()`       | Node.js `response.write()` (auto-chunked)|
+| **Pagelet content**       | External CSS/JS URLs (resource URLs)      | CSS/JS as URL arrays, markup as string |
+| **Client phases**         | 4-phase lifecycle (0→1→2→3)               | 4-phase: queue → show → done → complete|
+| **CSS loading**           | Parallel `<link>` injection, load tracking| Parallel `<link>` injection + dedup `c`|
+| **JS execution**          | `<script>` tag injection (async)          | `<script>` tag injection (async)       |
+| **Error recovery**        | `onPageletError` timeout fallback         | `onPageletError(id)` clears loading    |
+| **Priority**              | 4 priority levels (0–3)                   | `PRIORITY` enum (0–3)                  |
+| **Queue**                 | Client-side queue of pending pagelets     | Client-side `q` object for O(1) lookup |
+| **Backpressure**          | None (PHP blocking I/O)                   | `drain` event forwarding               |
+| **Stream format**         | `<script>bigPipe.onPageletArrive(...)</>  | `toScriptTag()` matches exactly        |
+| **Footer**                | `<script>bigPipe.pageComplete()</script>  | `close()` sends `pageComplete()`       |
+| **Resource dedup**        | Global CSS/JS dedup cache                 | `c` / `j` cache objects                |
+| **Server language**       | PHP (HipHop-compiled C++)                 | Node.js ES modules                     |
+| **Chunked encoding**      | Apache `flush()` → kernel `write()`       | `response.write()` (auto-chunked)      |
 | **Concurrency model**     | Single-threaded, async I/O multiplexed    | Event loop + async Promises            |
 
 ---
 
-## 6. What Facebook Got Right (And We Don't)
+## 6. What Facebook Had That We Don't
 
-### 6.1 Resource Parallelism
+### 6.1 Per-Pagelet Timeouts
 
-Facebook loaded CSS across pagelets **in parallel**. Multiple pagelets sharing the same CSS file only triggered one `<link>` load. Our inline approach works for demos but doesn't scale — real pages need external stylesheet deduplication.
+Facebook had configurable timeouts per pagelet. If a pagelet's CSS/JS failed to load within N seconds, `onPageletError(id)` fell back to minimal rendering. The client-side `onPageletError` handler is implemented but server-driven timeouts are left to the user.
 
-### 6.2 Phase Gating
+### 6.2 Inter-Pagelet Dependencies
 
-Facebook's 4-phase model prevented Flash of Unstyled Content (FOUC) by deferring HTML injection until CSS was confirmed loaded. Our runtime injects HTML immediately, which can cause a brief unstyled flash if the browser hasn't processed the inline `<style>` tag yet.
+Facebook tracked dependencies between pagelets (e.g., a `feed_story` pagelet depending on the `feed` container). Our model treats each pagelet as fully independent.
 
-### 6.3 Error Resilience
+### 6.3 Server-Side Failover
 
-Facebook had configurable timeouts per pagelet. If a pagelet's CSS failed to load within N seconds, it fell back to a minimal rendering. Our implementation has no recovery path.
-
-### 6.4 Resource Ordering Dependencies
-
-Facebook tracked inter-pagelet dependencies (e.g., a `feed_story` pagelet depending on the `feed` container). Our model treats each pagelet as fully independent.
-
----
-
-## 7. How to Make Our Implementation Match Facebook's Exactly
-
-To bridge the gap, these changes would be needed:
-
-1. **Pagelet.js**: Change `css`/`js` from strings to arrays of URLs (`css: string[]`, `js: string[]`). Add `content: { markup, css, js }` nesting in `toJSON`.
-
-2. **BigPipeEngine.clientRuntime()**: Replace with full 4-phase client:
-   - Phase 0: Arrive → load CSS/JS resources
-   - Phase 1: CSS loaded → `innerHTML` into placeholder div
-   - Phase 2: JS loaded → execute
-   - Phase 3: Complete
-   - Add URL dedup cache
-   - Add per-pagelet timeout fallback
-
-3. **Wire format**: Change `toScriptTag()` to match Facebook's exact payload shape:
-   ```json
-   {
-     "id": "pagelet_nav",
-     "content": { "markup": "...", "css": ["..."], "js": ["..."] },
-     "css": ["..."],
-     "js": ["..."],
-     "phase": 0
-   }
-   ```
-
-4. **Engine**: Remove priority queue. Pagelets should flush immediately when data resolves, not be sorted. Backpressure handling is fine but should not reorder.
+Facebook's PHP pipeline had graceful degradation per pagelet at the server level (e.g., if a data source timed out, the pagelet still rendered with a fallback). Our engine throws on error; the application must catch and handle gracefully.
 
 ---
 
