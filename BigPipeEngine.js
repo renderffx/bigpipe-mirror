@@ -19,6 +19,9 @@ export default class BigPipeEngine extends EventEmitter {
   constructor(response, options = {}) {
     super();
 
+    if (typeof response.writeHead !== 'function') {
+      throw new TypeError('BigPipeEngine requires a response with .writeHead()');
+    }
     if (typeof response.write !== 'function' || typeof response.end !== 'function') {
       throw new TypeError('BigPipeEngine requires a writable stream with .write() and .end()');
     }
@@ -30,6 +33,8 @@ export default class BigPipeEngine extends EventEmitter {
     this.#phase = PHASES.INIT;
     this.#pageletCount = 0;
     this.#closed = false;
+
+    this.setMaxListeners(Infinity);
 
     this.#response.on('error', (err) => {
       this.#phase = PHASES.CLOSED;
@@ -67,6 +72,9 @@ export default class BigPipeEngine extends EventEmitter {
     }
     if (shellHTML !== undefined && shellHTML !== null && typeof shellHTML !== 'string') {
       throw new TypeError('sendHead shellHTML must be a string');
+    }
+    if (this.#response.destroyed) {
+      throw new Error('Cannot send head: underlying response stream is destroyed');
     }
 
     const head = shellHTML ?? '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="utf-8">\n<title>Page</title>\n</head>\n<body>\n';
@@ -106,14 +114,19 @@ export default class BigPipeEngine extends EventEmitter {
     this.#pageletCount++;
     this.emit('pagelet:start', pagelet);
 
-    const buffer = Buffer.from(pagelet.toScriptTag(), 'utf-8');
-
-    const ok = this.#response.write(buffer);
-    this.emit('pagelet:complete', pagelet);
-    return ok;
+    try {
+      const buffer = Buffer.from(pagelet.toScriptTag(), 'utf-8');
+      const ok = this.#response.write(buffer);
+      this.emit('pagelet:complete', pagelet);
+      return ok;
+    } catch (err) {
+      this.#pageletCount--;
+      throw err;
+    }
   }
 
   flush() {
+    if (this.#response.destroyed) return this;
     if (typeof this.#response.flush === 'function') {
       this.#response.flush();
     }
@@ -123,13 +136,35 @@ export default class BigPipeEngine extends EventEmitter {
 
   close(footerHTML) {
     if (this.#phase === PHASES.CLOSED || this.#closed) return this;
-    if (this.#phase === PHASES.INIT) this.sendHead();
-    if (footerHTML) {
-      this.#response.write(Buffer.from(footerHTML, 'utf-8'));
+
+    if (footerHTML !== undefined && footerHTML !== null && typeof footerHTML !== 'string') {
+      throw new TypeError('close footerHTML must be a string');
     }
+
+    if (this.#phase === PHASES.INIT) {
+      try {
+        this.sendHead();
+      } catch {
+        this.#phase = PHASES.CLOSED;
+        this.#closed = true;
+        return this;
+      }
+    }
+
     this.#phase = PHASES.CLOSED;
     this.#closed = true;
-    this.#response.end();
+
+    try {
+      if (footerHTML && !this.#response.destroyed) {
+        this.#response.write(Buffer.from(footerHTML, 'utf-8'));
+      }
+      if (!this.#response.destroyed) {
+        this.#response.end();
+      }
+    } catch {
+      // stream already destroyed or errored
+    }
+
     this.emit('close');
     return this;
   }

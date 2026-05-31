@@ -76,6 +76,16 @@ describe('Pagelet', () => {
     assert.equal(p.phase, 0);
   });
 
+  it('deduplicates css urls', () => {
+    const p = new Pagelet({ id: 'x', css: ['/a.css', '/a.css', '/b.css'] });
+    assert.deepEqual(p.css, ['/a.css', '/b.css']);
+  });
+
+  it('deduplicates js urls', () => {
+    const p = new Pagelet({ id: 'x', js: ['/a.js', '/a.js', '/b.js'] });
+    assert.deepEqual(p.js, ['/a.js', '/b.js']);
+  });
+
   it('toJSON() returns correct shape', () => {
     const p = new Pagelet({ id: 'x', markup: 'm', css: ['c'], js: ['j'], phase: 1 });
     const json = p.toJSON();
@@ -143,5 +153,9 @@ describe('Pagelet', () => {
     js.push('y');
     assert.deepEqual(p.css, ['a']);
     assert.deepEqual(p.js, ['b']);
+  });
+
+  it('constructor accepts no options', () => {
+    assert.throws(() => new Pagelet(), TypeError);
   });
 });

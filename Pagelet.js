@@ -39,13 +39,13 @@ export default class Pagelet {
       : Number.isInteger(phase) ? phase : 0;
 
     if (p < 0 || p > 3) {
-      throw new TypeError('Pagelet phase must be 0–3');
+      throw new TypeError('Pagelet phase must be 0-3');
     }
 
     this.#id = id;
     this.#markup = markup;
-    this.#css = css;
-    this.#js = js;
+    this.#css = [...new Set(css)];
+    this.#js = [...new Set(js)];
     this.#phase = p;
   }
 
@@ -57,7 +57,7 @@ export default class Pagelet {
 
   set phase(v) {
     if (!Number.isInteger(v) || v < 0 || v > 3) {
-      throw new TypeError('Pagelet phase must be an integer 0–3');
+      throw new TypeError('Pagelet phase must be an integer 0-3');
     }
     this.#phase = v;
   }
