@@ -35,6 +35,10 @@ export default class BigPipeEngine extends EventEmitter {
       this.#phase = PHASES.CLOSED;
       this.emit('close');
     });
+
+    this.#response.on('drain', () => {
+      this.emit('drain');
+    });
   }
 
   get phase() {
