@@ -14,6 +14,7 @@ export default class BigPipeEngine extends EventEmitter {
   #response;
   #phase;
   #pageletCount;
+  #closed;
 
   constructor(response, options = {}) {
     super();
@@ -25,6 +26,7 @@ export default class BigPipeEngine extends EventEmitter {
     this.#response = response;
     this.#phase = PHASES.INIT;
     this.#pageletCount = 0;
+    this.#closed = false;
 
     this.#response.on('error', (err) => {
       this.#phase = PHASES.CLOSED;
@@ -33,7 +35,10 @@ export default class BigPipeEngine extends EventEmitter {
 
     this.#response.on('close', () => {
       this.#phase = PHASES.CLOSED;
-      this.emit('close');
+      if (!this.#closed) {
+        this.#closed = true;
+        this.emit('close');
+      }
     });
 
     this.#response.on('drain', () => {
@@ -112,12 +117,13 @@ export default class BigPipeEngine extends EventEmitter {
   }
 
   close(footerHTML) {
-    if (this.#phase === PHASES.CLOSED) return this;
+    if (this.#phase === PHASES.CLOSED || this.#closed) return this;
     if (this.#phase === PHASES.INIT) this.sendHead();
     if (footerHTML) {
       this.#response.write(Buffer.from(footerHTML, 'utf-8'));
     }
     this.#phase = PHASES.CLOSED;
+    this.#closed = true;
     this.#response.end();
     this.emit('close');
     return this;
