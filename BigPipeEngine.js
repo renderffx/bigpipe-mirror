@@ -15,6 +15,8 @@ export default class BigPipeEngine extends EventEmitter {
   #phase;
   #pageletCount;
   #closed;
+  #sentIds;
+  #cleanup;
 
   constructor(response, options = {}) {
     super();
@@ -33,25 +35,44 @@ export default class BigPipeEngine extends EventEmitter {
     this.#phase = PHASES.INIT;
     this.#pageletCount = 0;
     this.#closed = false;
+    this.#sentIds = new Set();
 
     this.setMaxListeners(Infinity);
 
-    this.#response.on('error', (err) => {
+    const onError = (err) => {
       this.#phase = PHASES.CLOSED;
+      this.#closed = true;
+      this.#detach();
       this.emit('error', err);
-    });
+    };
 
-    this.#response.on('close', () => {
+    const onClose = () => {
       this.#phase = PHASES.CLOSED;
       if (!this.#closed) {
         this.#closed = true;
+        this.#detach();
         this.emit('close');
       }
-    });
+    };
 
-    this.#response.on('drain', () => {
+    const onDrain = () => {
       this.emit('drain');
-    });
+    };
+
+    this.#cleanup = () => {
+      response.off('error', onError);
+      response.off('close', onClose);
+      response.off('drain', onDrain);
+      this.#cleanup = null;
+    };
+
+    response.on('error', onError);
+    response.on('close', onClose);
+    response.on('drain', onDrain);
+  }
+
+  #detach() {
+    if (this.#cleanup) this.#cleanup();
   }
 
   get phase() {
@@ -60,10 +81,6 @@ export default class BigPipeEngine extends EventEmitter {
 
   get pageletCount() {
     return this.#pageletCount;
-  }
-
-  get response() {
-    return this.#response;
   }
 
   sendHead(shellHTML) {
@@ -81,8 +98,7 @@ export default class BigPipeEngine extends EventEmitter {
 
     this.#response.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
-      'Transfer-Encoding': 'chunked',
-      'X-Powered-By': 'BigPipeEngine/1.0'
+      'Transfer-Encoding': 'chunked'
     });
 
     this.#response.write(BigPipeEngine.clientRuntime());
@@ -98,19 +114,23 @@ export default class BigPipeEngine extends EventEmitter {
       throw new TypeError('sendPagelet expects a Pagelet instance');
     }
     if (this.#response.destroyed) {
-      throw new Error('Cannot send pagelet: underlying response stream is destroyed');
+      throw new Error('Cannot send pagelet "' + pagelet.id + '": underlying response stream is destroyed');
     }
     if (this.#phase === PHASES.INIT) {
       throw new Error('Must call sendHead() before sending pagelets');
     }
     if (this.#phase === PHASES.CLOSED) {
-      throw new Error('Cannot send pagelet after engine is closed');
+      throw new Error('Cannot send pagelet "' + pagelet.id + '" after engine is closed');
+    }
+    if (this.#sentIds.has(pagelet.id)) {
+      throw new Error('Duplicate pagelet id "' + pagelet.id + '"');
     }
 
     if (this.#phase === PHASES.HEAD_SENT) {
       this.#phase = PHASES.STREAMING;
     }
 
+    this.#sentIds.add(pagelet.id);
     this.#pageletCount++;
     this.emit('pagelet:start', pagelet);
 
@@ -120,9 +140,14 @@ export default class BigPipeEngine extends EventEmitter {
       this.emit('pagelet:complete', pagelet);
       return ok;
     } catch (err) {
+      this.#sentIds.delete(pagelet.id);
       this.#pageletCount--;
       throw err;
     }
+  }
+
+  hasPagelet(id) {
+    return this.#sentIds.has(id);
   }
 
   flush() {
@@ -147,12 +172,14 @@ export default class BigPipeEngine extends EventEmitter {
       } catch {
         this.#phase = PHASES.CLOSED;
         this.#closed = true;
+        this.#detach();
         return this;
       }
     }
 
     this.#phase = PHASES.CLOSED;
     this.#closed = true;
+    this.#detach();
 
     try {
       if (footerHTML && !this.#response.destroyed) {

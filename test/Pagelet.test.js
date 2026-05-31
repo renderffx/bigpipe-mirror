@@ -98,10 +98,19 @@ describe('Pagelet', () => {
     assert.equal(json.phase, 1);
   });
 
+  it('toJSON() returns frozen object', () => {
+    const p = new Pagelet({ id: 'x' });
+    const json = p.toJSON();
+    assert.ok(Object.isFrozen(json));
+    assert.ok(Object.isFrozen(json.content));
+    assert.ok(Object.isFrozen(json.content.css));
+    assert.ok(Object.isFrozen(json.content.js));
+  });
+
   it('toJSON() returns defensive copies', () => {
     const p = new Pagelet({ id: 'x', css: ['c'] });
     const json = p.toJSON();
-    json.css.push('d');
+    assert.throws(() => { json.css.push('d'); }, TypeError);
     assert.deepEqual(p.css, ['c']);
   });
 

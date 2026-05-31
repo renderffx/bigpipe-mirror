@@ -5,6 +5,17 @@ export const PRIORITY = Object.freeze({
   CRITICAL: 3,
 });
 
+function deepFreeze(obj) {
+  const props = Object.getOwnPropertyNames(obj);
+  for (const name of props) {
+    const val = obj[name];
+    if (val && typeof val === 'object' && !Object.isFrozen(val)) {
+      deepFreeze(val);
+    }
+  }
+  return Object.freeze(obj);
+}
+
 export default class Pagelet {
   #id;
   #markup;
@@ -63,7 +74,7 @@ export default class Pagelet {
   }
 
   toJSON() {
-    return {
+    return deepFreeze({
       id: this.#id,
       content: {
         markup: this.#markup,
@@ -73,7 +84,7 @@ export default class Pagelet {
       css: [...this.#css],
       js: [...this.#js],
       phase: this.#phase,
-    };
+    });
   }
 
   toScriptTag() {
