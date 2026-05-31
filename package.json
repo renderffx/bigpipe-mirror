@@ -1,0 +1,14 @@
+{
+  "name": "bigpipe-infra",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Production-grade BigPipe simulation framework — isolated infrastructure classes",
+  "exports": {
+    ".": "./BigPipeEngine.js",
+    "./pagelet": "./Pagelet.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
