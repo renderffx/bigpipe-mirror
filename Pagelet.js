@@ -5,6 +5,17 @@ export const PRIORITY = Object.freeze({
   CRITICAL: 3,
 });
 
+function deepFreeze(obj) {
+  const props = Object.getOwnPropertyNames(obj);
+  for (const name of props) {
+    const val = obj[name];
+    if (val && typeof val === 'object' && !Object.isFrozen(val)) {
+      deepFreeze(val);
+    }
+  }
+  return Object.freeze(obj);
+}
+
 export default class Pagelet {
   #id;
   #markup;
@@ -39,13 +50,13 @@ export default class Pagelet {
       : Number.isInteger(phase) ? phase : 0;
 
     if (p < 0 || p > 3) {
-      throw new TypeError('Pagelet phase must be 0–3');
+      throw new TypeError('Pagelet phase must be 0-3');
     }
 
     this.#id = id;
     this.#markup = markup;
-    this.#css = css;
-    this.#js = js;
+    this.#css = [...new Set(css)];
+    this.#js = [...new Set(js)];
     this.#phase = p;
   }
 
@@ -57,13 +68,13 @@ export default class Pagelet {
 
   set phase(v) {
     if (!Number.isInteger(v) || v < 0 || v > 3) {
-      throw new TypeError('Pagelet phase must be an integer 0–3');
+      throw new TypeError('Pagelet phase must be an integer 0-3');
     }
     this.#phase = v;
   }
 
   toJSON() {
-    return {
+    return deepFreeze({
       id: this.#id,
       content: {
         markup: this.#markup,
@@ -73,7 +84,7 @@ export default class Pagelet {
       css: [...this.#css],
       js: [...this.#js],
       phase: this.#phase,
-    };
+    });
   }
 
   toScriptTag() {

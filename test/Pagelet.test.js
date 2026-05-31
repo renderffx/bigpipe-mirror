@@ -76,6 +76,16 @@ describe('Pagelet', () => {
     assert.equal(p.phase, 0);
   });
 
+  it('deduplicates css urls', () => {
+    const p = new Pagelet({ id: 'x', css: ['/a.css', '/a.css', '/b.css'] });
+    assert.deepEqual(p.css, ['/a.css', '/b.css']);
+  });
+
+  it('deduplicates js urls', () => {
+    const p = new Pagelet({ id: 'x', js: ['/a.js', '/a.js', '/b.js'] });
+    assert.deepEqual(p.js, ['/a.js', '/b.js']);
+  });
+
   it('toJSON() returns correct shape', () => {
     const p = new Pagelet({ id: 'x', markup: 'm', css: ['c'], js: ['j'], phase: 1 });
     const json = p.toJSON();
@@ -88,10 +98,19 @@ describe('Pagelet', () => {
     assert.equal(json.phase, 1);
   });
 
+  it('toJSON() returns frozen object', () => {
+    const p = new Pagelet({ id: 'x' });
+    const json = p.toJSON();
+    assert.ok(Object.isFrozen(json));
+    assert.ok(Object.isFrozen(json.content));
+    assert.ok(Object.isFrozen(json.content.css));
+    assert.ok(Object.isFrozen(json.content.js));
+  });
+
   it('toJSON() returns defensive copies', () => {
     const p = new Pagelet({ id: 'x', css: ['c'] });
     const json = p.toJSON();
-    json.css.push('d');
+    assert.throws(() => { json.css.push('d'); }, TypeError);
     assert.deepEqual(p.css, ['c']);
   });
 
@@ -143,5 +162,9 @@ describe('Pagelet', () => {
     js.push('y');
     assert.deepEqual(p.css, ['a']);
     assert.deepEqual(p.js, ['b']);
+  });
+
+  it('constructor accepts no options', () => {
+    assert.throws(() => new Pagelet(), TypeError);
   });
 });

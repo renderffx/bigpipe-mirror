@@ -21,13 +21,13 @@ p{margin:0;color:#555;font-size:.9rem}
 </head>
 <body>
 <h1>BigPipe Streaming</h1>
-<p style="color:#666;margin-bottom:24px">Pagelets stream out of order &mdash; watch them arrive.</p>
+<p style="color:#666;margin-bottom:24px">Pagelets stream out of order - watch them arrive.</p>
 <div id="fast" class="box loading"></div>
 <div id="slow" class="box loading"></div>
 <div id="medium" class="box loading"></div>
 `;
 
-const FOOTER = `</body>\n</html>\n`;
+const FOOTER = '</body>\n</html>\n';
 
 async function fetchFast() {
   await delay(300);
@@ -61,35 +61,37 @@ const server = http.createServer((req, res) => {
 
   const onDone = name => {
     remaining--;
-    console.log(`[+${Date.now() - t0}ms] \u2714 ${name}`);
+    console.log(`[+${Date.now() - t0}ms] ${name}`);
     if (remaining === 0) engine.close(FOOTER);
   };
 
   const onErr = err => {
     console.error(err.message);
-    if (!res.destroyed) engine.close();
+    engine.close();
   };
 
   fetchSlow().then(({ html }) => {
-    console.log(`[+${Date.now() - t0}ms] \u25B6 sending slow`);
+    console.log(`[+${Date.now() - t0}ms] sending slow`);
     engine.sendPagelet(new Pagelet({ id: 'slow', html }));
-    engine.flush();
     onDone('slow');
   }).catch(onErr);
 
   fetchMedium().then(({ html }) => {
-    console.log(`[+${Date.now() - t0}ms] \u25B6 sending medium`);
+    console.log(`[+${Date.now() - t0}ms] sending medium`);
     engine.sendPagelet(new Pagelet({ id: 'medium', html }));
-    engine.flush();
     onDone('medium');
   }).catch(onErr);
 
   fetchFast().then(({ html }) => {
-    console.log(`[+${Date.now() - t0}ms] \u25B6 sending fast`);
+    console.log(`[+${Date.now() - t0}ms] sending fast`);
     engine.sendPagelet(new Pagelet({ id: 'fast', html }));
-    engine.flush();
     onDone('fast');
   }).catch(onErr);
+});
+
+server.on('error', err => {
+  console.error('Server error:', err.message);
+  process.exit(1);
 });
 
 const PORT = process.env.PORT || 3000;

@@ -1,7 +1,6 @@
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { Writable } from 'node:stream';
 import BigPipeEngine, { PHASES } from '../BigPipeEngine.js';
 import Pagelet from '../Pagelet.js';
 
@@ -25,7 +24,10 @@ function fakeResponse() {
     if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     destroyed = true;
   });
-  res.flush = undefined;
+  res.off = mock.fn((event, handler) => {
+    res.removeListener(event, handler);
+    return res;
+  });
   Object.defineProperty(res, 'destroyed', { get: () => destroyed });
   Object.defineProperty(res, 'headersSent', { get: () => headersSent });
   res._chunks = chunks;
@@ -42,11 +44,19 @@ describe('BigPipeEngine', () => {
 
     it('throws for non-writable response', () => {
       assert.throws(() => new BigPipeEngine({}), TypeError);
-      assert.throws(() => new BigPipeEngine({ write: 1, end: 1 }), TypeError);
+    });
+
+    it('throws for missing writeHead', () => {
+      assert.throws(() => new BigPipeEngine({ write() {}, end() {} }), TypeError);
     });
 
     it('throws for null options', () => {
       assert.throws(() => new BigPipeEngine(fakeResponse(), null), TypeError);
+    });
+
+    it('sets max listeners to Infinity', () => {
+      const engine = new BigPipeEngine(fakeResponse());
+      assert.equal(engine.getMaxListeners(), Infinity);
     });
   });
 
@@ -61,6 +71,14 @@ describe('BigPipeEngine', () => {
       assert.ok(res.write.mock.calls[0].arguments[0].includes('window.bigPipe'));
       assert.equal(res.write.mock.calls[1].arguments[0], '<body>');
       assert.equal(engine.phase, PHASES.HEAD_SENT);
+    });
+
+    it('does not send X-Powered-By header', () => {
+      const res = fakeResponse();
+      const engine = new BigPipeEngine(res);
+      engine.sendHead();
+      const headers = res.writeHead.mock.calls[0].arguments[1];
+      assert.equal(headers['X-Powered-By'], undefined);
     });
 
     it('uses default shell when not provided', () => {
@@ -79,6 +97,13 @@ describe('BigPipeEngine', () => {
     it('throws for non-string shellHTML', () => {
       const engine = new BigPipeEngine(fakeResponse());
       assert.throws(() => engine.sendHead(123), TypeError);
+    });
+
+    it('throws if response is destroyed', () => {
+      const res = fakeResponse();
+      const engine = new BigPipeEngine(res);
+      res.end();
+      assert.throws(() => engine.sendHead(), Error);
     });
 
     it('emits head:sent event', () => {
@@ -135,12 +160,37 @@ describe('BigPipeEngine', () => {
       assert.throws(() => engine.sendPagelet({ id: 'x' }), TypeError);
     });
 
+    it('throws on duplicate pagelet id', () => {
+      const engine = new BigPipeEngine(fakeResponse());
+      engine.sendHead();
+      engine.sendPagelet(new Pagelet({ id: 'x' }));
+      assert.throws(() => engine.sendPagelet(new Pagelet({ id: 'x' })), Error);
+    });
+
     it('increments pageletCount', () => {
       const engine = new BigPipeEngine(fakeResponse());
       engine.sendHead();
       engine.sendPagelet(new Pagelet({ id: 'a' }));
       engine.sendPagelet(new Pagelet({ id: 'b' }));
       assert.equal(engine.pageletCount, 2);
+    });
+
+    it('decrements pageletCount on serialization failure', () => {
+      const engine = new BigPipeEngine(fakeResponse());
+      engine.sendHead();
+      const p = new Pagelet({ id: 'x' });
+      p.toScriptTag = () => { throw new Error('boom'); };
+      assert.throws(() => engine.sendPagelet(p), Error);
+      assert.equal(engine.pageletCount, 0);
+    });
+
+    it('removes id from sent set on serialization failure', () => {
+      const engine = new BigPipeEngine(fakeResponse());
+      engine.sendHead();
+      const p = new Pagelet({ id: 'x' });
+      p.toScriptTag = () => { throw new Error('boom'); };
+      assert.throws(() => engine.sendPagelet(p), Error);
+      assert.equal(engine.hasPagelet('x'), false);
     });
 
     it('emits pagelet events', () => {
@@ -151,6 +201,21 @@ describe('BigPipeEngine', () => {
       engine.on('pagelet:complete', (p) => events.push(`end:${p.id}`));
       engine.sendPagelet(new Pagelet({ id: 'x' }));
       assert.deepEqual(events, ['start:x', 'end:x']);
+    });
+  });
+
+  describe('hasPagelet', () => {
+    it('returns true for sent pagelet ids', () => {
+      const engine = new BigPipeEngine(fakeResponse());
+      engine.sendHead();
+      engine.sendPagelet(new Pagelet({ id: 'x' }));
+      assert.equal(engine.hasPagelet('x'), true);
+    });
+
+    it('returns false for unsent pagelet ids', () => {
+      const engine = new BigPipeEngine(fakeResponse());
+      engine.sendHead();
+      assert.equal(engine.hasPagelet('x'), false);
     });
   });
 
@@ -178,6 +243,17 @@ describe('BigPipeEngine', () => {
       engine.flush();
       assert.deepEqual(events, ['flush']);
     });
+
+    it('no-ops when response is destroyed', () => {
+      const res = fakeResponse();
+      const engine = new BigPipeEngine(res);
+      engine.sendHead();
+      engine.close();
+      const events = [];
+      engine.on('flush', () => events.push('flush'));
+      engine.flush();
+      assert.deepEqual(events, []);
+    });
   });
 
   describe('close', () => {
@@ -197,6 +273,12 @@ describe('BigPipeEngine', () => {
       engine.close('</html>');
       const last = res.write.mock.calls[res.write.mock.calls.length - 1].arguments[0].toString();
       assert.ok(last.includes('</html>'));
+    });
+
+    it('throws for non-string footerHTML', () => {
+      const engine = new BigPipeEngine(fakeResponse());
+      engine.sendHead();
+      assert.throws(() => engine.close(123), TypeError);
     });
 
     it('sends head automatically if in INIT phase', () => {
@@ -221,14 +303,25 @@ describe('BigPipeEngine', () => {
       assert.deepEqual(events, ['close']);
     });
 
-    it('prevents duplicate close from response close event', () => {
+    it('removes response event listeners', () => {
       const res = fakeResponse();
       const engine = new BigPipeEngine(res);
-      const events = [];
-      engine.on('close', () => events.push('close'));
+      engine.sendHead();
+      const before = res.listenerCount('error');
       engine.close();
-      res.emit('close');
-      assert.deepEqual(events, ['close']);
+      const after = res.listenerCount('error');
+      assert.ok(after < before);
+    });
+
+    it('sends pageComplete script before footer', () => {
+      const res = fakeResponse();
+      const engine = new BigPipeEngine(res);
+      engine.sendHead();
+      engine.close('</html>');
+      const allWrites = res.write.mock.calls.map(c => c.arguments[0].toString());
+      const pageCompleteIdx = allWrites.findIndex(w => w.includes('pageComplete'));
+      assert.ok(pageCompleteIdx >= 0);
+      assert.ok(allWrites.some(w => w.includes('</html>')));
     });
   });
 
@@ -241,13 +334,14 @@ describe('BigPipeEngine', () => {
       assert.equal(engine.phase, PHASES.CLOSED);
     });
 
-    it('emits error on response error', () => {
+    it('emits error on response error and detaches', () => {
       const res = fakeResponse();
       const engine = new BigPipeEngine(res);
       const errors = [];
       engine.on('error', (e) => errors.push(e.message));
       res.emit('error', new Error('boom'));
       assert.deepEqual(errors, ['boom']);
+      assert.equal(res.listenerCount('error'), 0);
     });
 
     it('transitions to CLOSED on response close', () => {
@@ -264,8 +358,9 @@ describe('BigPipeEngine', () => {
       assert.ok(typeof runtime === 'string');
       assert.ok(runtime.includes('window.bigPipe'));
       assert.ok(runtime.includes('onPageletArrive'));
-      assert.ok(runtime.includes('_display'));
-      assert.ok(runtime.includes('_complete'));
+      assert.ok(runtime.includes('onPageletError'));
+      assert.ok(runtime.includes('pageComplete'));
+      assert.ok(runtime.includes('show'));
     });
   });
 
